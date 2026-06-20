@@ -353,7 +353,7 @@ def convert_to_dataframe(objects):
             clean_for_csv(obj["Acquisition"]),
             clean_for_csv(obj["Date_Collecte"]),
             clean_for_csv(obj["Lieu_Collecte"]),
-            "", # Donateur (no pattern defined yet)
+            clean_for_csv(obj["Acquisition"]),
             clean_for_csv(obj["Collecteur"]),
             inscriptions_joined,
             "", # Description restauration (no pattern defined yet)
