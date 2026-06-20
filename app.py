@@ -75,11 +75,31 @@ def parse_line_stream(lines):
     objects = []
     current_obj = None
     current_section = None
+    current_block = "general"
+    
+    # Major section headers that break multi-line note accumulation
+    major_headers = [
+        "identification :", "désignation :", "création/exécution :", 
+        "matière et technique :", "mesures :", "inscriptions / marques :", 
+        "description analytique", "domaine :", "statut administratif :", 
+        "acquisition", "bibliographie :", "multimédia :", "fonction d'usage :"
+    ]
     
     for line_tuple in lines:
         line, source = line_tuple
         line_lower = line.lower()
         
+        # 1. Block Context Tracking
+        if "bibliographie :" in line_lower or "reference bibliographique" in line_lower:
+            current_block = "bibliography"
+        elif any(k in line_lower for k in ["fonction d'usage :", "utilisation", "identification :", "désignation :", "mesures :", "description analytique", "création/exécution :"]):
+            current_block = "general"
+            
+        # 2. Exit General Notes mode if we hit a major section header
+        if any(h in line_lower for h in major_headers):
+            if current_section == "General_Notes":
+                current_section = None
+                
         is_new_trigger = False
         if "numéro d'inventaire" in line_lower or "numero d'inventaire" in line_lower:
             if ":" in line:
@@ -103,15 +123,22 @@ def parse_line_stream(lines):
                 "Domain": [],
                 "Acquisition": "",
                 "Bibliography": "",
-                "Notes": ""
+                "Biblio_Notes": "", 
+                "General_Notes": []  # List storing all non-biblio notes
             }
             current_section = None
+            current_block = "general"
             continue
             
         if current_obj is None:
             continue
             
-        # Parse fields
+        # 3. If locked inside a general note, capture raw text safely
+        if current_section == "General_Notes":
+            current_obj["General_Notes"].append(line)
+            continue
+            
+        # 4. Standard Field Parsers
         if "désignation du bien" in line_lower or "designation du bien" in line_lower:
             val = extract_value(line)
             if val and val not in current_obj["Designations"]:
@@ -153,14 +180,23 @@ def parse_line_stream(lines):
         elif "acquisition" in line_lower:
             current_obj["Acquisition"] = extract_value(line)
             current_section = None
+            
         elif "référence bibliographique" in line_lower or "reference bibliographique" in line_lower:
             current_obj["Bibliography"] = extract_value(line)
             current_section = None
-        elif "notes :" in line_lower:
-            current_obj["Notes"] = extract_value(line)
-            current_section = None
             
-        # Multi-line text accumulation logic
+        elif "notes :" in line_lower:
+            val = extract_value(line)
+            if current_block == "bibliography":
+                current_obj["Biblio_Notes"] = val
+                current_section = None
+            else:
+                if val:
+                    current_obj["General_Notes"].append(val)
+                # Lock parser into note accumulation mode
+                current_section = "General_Notes"
+    
+        # Multi-line text accumulation logic                
         else:
             if ":" not in line:
                 if current_section == "Materials":
@@ -204,27 +240,32 @@ def convert_to_dataframe(objects):
         domain_joined = clean_for_csv(", ".join(obj["Domain"]))
         description_clean = clean_for_csv(obj["Description"])
         
+        # Merge Bibliography with its associated note (e.g. P.786)
         biblio_complete = obj["Bibliography"]
-        if obj["Notes"]:
-            biblio_complete += f" p. {obj['Notes']}" if biblio_complete else obj["Notes"]
+        if obj["Biblio_Notes"]:
+            biblio_complete += f" p. {obj['Biblio_Notes']}" if biblio_complete else obj["Biblio_Notes"]
         biblio_complete = clean_for_csv(biblio_complete)
+        
+        # Concatenate all accumulated general notes cleanly
+        # E.g. "Note 1 text. Dimensions de la 2e partie : Hauteur : 36"
+        general_notes_clean = clean_for_csv(" --- ".join(obj["General_Notes"]))
         
         row = [
             clean_for_csv(obj["Inventory"]),
             desig1,
             desig2,
             clean_for_csv(obj["Function_Role"]),
-            "", "", "", "", "", # Placeholder empty columns
+            "", "", "", "", "", 
             materials_joined,
-            clean_for_csv(obj["Height"]),    # Hauteur en cm -> Longueur column
-            clean_for_csv(obj["Width"]),     # Largeur en cm -> Largeur column
-            clean_for_csv(obj["Thickness"]), # Epaisseur/Profondeur/Diamètre en cm -> Hauteur column
+            clean_for_csv(obj["Height"]),    
+            clean_for_csv(obj["Width"]),     
+            clean_for_csv(obj["Thickness"]), 
             description_clean,
             domain_joined,
             clean_for_csv(obj["Acquisition"]),
-            "", "", "", "", "", "", "", # Placeholder empty columns
+            "", "", "", "", "", "", "", 
             biblio_complete,
-            ""
+            general_notes_clean  # Mapped to the final CSV "Notes" column
         ]
         rows.append(row)
         
