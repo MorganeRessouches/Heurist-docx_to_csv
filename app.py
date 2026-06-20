@@ -77,12 +77,16 @@ def parse_line_stream(lines):
     current_section = None
     current_block = "general"
     
-    # Major section headers that break multi-line note accumulation
+    # Major section headers that break multi-line note and text accumulation
     major_headers = [
         "identification :", "désignation :", "création/exécution :", 
+        "epoque, datation :", "époque, datation :", "lieu :",
         "matière et technique :", "mesures :", "inscriptions / marques :", 
         "description analytique", "domaine :", "statut administratif :", 
-        "acquisition", "bibliographie :", "multimédia :", "fonction d'usage :"
+        "acquisition", "bibliographie :", "multimédia :", "fonction d'usage :",
+        "type d'util. / dest. :", "utilisation / destination :", "date d'util. / dest. :", "lieu d'util. / dest. :",
+        "collecte :", "lieu de collecte :", "collecteur :", "date de collecte :", "méthode de collecte :",
+        "type d'inscription :", "emplacement :", "transcription :"
     ]
     
     for line_tuple in lines:
@@ -92,7 +96,15 @@ def parse_line_stream(lines):
         # 1. Block Context Tracking
         if "bibliographie :" in line_lower or "reference bibliographique" in line_lower:
             current_block = "bibliography"
-        elif any(k in line_lower for k in ["fonction d'usage :", "utilisation", "identification :", "désignation :", "mesures :", "description analytique", "création/exécution :"]):
+        elif "création/exécution :" in line_lower or "creation/execution :" in line_lower:
+            current_block = "creation_execution"
+        elif "fonction d'usage :" in line_lower:
+            current_block = "utilisation"
+        elif "collecte :" in line_lower:
+            current_block = "collecte"
+        elif "inscriptions / marques :" in line_lower or "inscriptions/marques :" in line_lower:
+            current_block = "inscriptions"
+        elif any(k in line_lower for k in ["identification :", "désignation :", "mesures :", "description analytique"]):
             current_block = "general"
             
         # 2. Exit General Notes mode if we hit a major section header
@@ -124,7 +136,15 @@ def parse_line_stream(lines):
                 "Acquisition": "",
                 "Bibliography": "",
                 "Biblio_Notes": "", 
-                "General_Notes": []  # List storing all non-biblio notes
+                "General_Notes": [],
+                "Date_Fabrication": "",
+                "Lieu_Fabrication": "",
+                "Date_Utilisation": "",
+                "Lieu_Utilisation": "",
+                "Lieu_Collecte": "",
+                "Collecteur": "",
+                "Date_Collecte": "",
+                "Inscriptions": []
             }
             current_section = None
             current_block = "general"
@@ -181,6 +201,39 @@ def parse_line_stream(lines):
             current_obj["Acquisition"] = extract_value(line)
             current_section = None
             
+        # Fabrication Date & Place Rules
+        elif "epoque, datation" in line_lower or "époque, datation" in line_lower:
+            current_obj["Date_Fabrication"] = extract_value(line)
+            current_section = "Date_Fabrication"
+        elif "lieu :" in line_lower and current_block == "creation_execution":
+            current_obj["Lieu_Fabrication"] = extract_value(line)
+            current_section = "Lieu_Fabrication"
+            
+        # Utilisation Rules
+        elif "date d'util. / dest." in line_lower:
+            current_obj["Date_Utilisation"] = extract_value(line)
+            current_section = "Date_Utilisation"
+        elif "lieu d'util. / dest." in line_lower:
+            current_obj["Lieu_Utilisation"] = extract_value(line)
+            current_section = "Lieu_Utilisation"
+            
+        # Collecte Rules
+        elif "lieu de collecte" in line_lower:
+            current_obj["Lieu_Collecte"] = extract_value(line)
+            current_section = "Lieu_Collecte"
+        elif "collecteur" in line_lower:
+            current_obj["Collecteur"] = extract_value(line)
+            current_section = "Collecteur"
+        elif "date de collecte" in line_lower:
+            current_obj["Date_Collecte"] = extract_value(line)
+            current_section = "Date_Collecte"
+            
+        # Inscriptions / Transcription Rules
+        elif "transcription :" in line_lower:
+            val = extract_value(line)
+            current_obj["Inscriptions"].append(val if val else "")
+            current_section = "Transcription"
+            
         elif "référence bibliographique" in line_lower or "reference bibliographique" in line_lower:
             current_obj["Bibliography"] = extract_value(line)
             current_section = None
@@ -193,7 +246,6 @@ def parse_line_stream(lines):
             else:
                 if val:
                     current_obj["General_Notes"].append(val)
-                # Lock parser into note accumulation mode
                 current_section = "General_Notes"
     
         # Multi-line text accumulation logic                
@@ -206,11 +258,40 @@ def parse_line_stream(lines):
                 elif current_section == "Domain":
                     current_obj["Domain"].append(line)
                 elif current_section == "Function_Role":
-                    # For multi-line values under Function/Role
                     if current_obj["Function_Role"]:
                         current_obj["Function_Role"] += ", " + line
                     else:
                         current_obj["Function_Role"] = line
+                elif current_section == "Date_Fabrication":
+                    if current_obj["Date_Fabrication"]:
+                        current_obj["Date_Fabrication"] += " " + line
+                    else:
+                        current_obj["Date_Fabrication"] = line
+                elif current_section == "Lieu_Fabrication":
+                    if current_obj["Lieu_Fabrication"]:
+                        current_obj["Lieu_Fabrication"] += " " + line
+                    else:
+                        current_obj["Lieu_Fabrication"] = line
+                elif current_section == "Date_Utilisation":
+                    if current_obj["Date_Utilisation"]:
+                        current_obj["Date_Utilisation"] += " " + line
+                    else:
+                        current_obj["Date_Utilisation"] = line
+                elif current_section == "Lieu_Utilisation":
+                    if current_obj["Lieu_Utilisation"]:
+                        current_obj["Lieu_Utilisation"] += " " + line
+                    else:
+                        current_obj["Lieu_Utilisation"] = line
+                elif current_section == "Collecteur":
+                    if current_obj["Collecteur"]:
+                        current_obj["Collecteur"] += " " + line
+                    else:
+                        current_obj["Collecteur"] = line
+                elif current_section == "Transcription":
+                    if current_obj["Inscriptions"]:
+                        current_obj["Inscriptions"][-1] += " " + line
+                    else:
+                        current_obj["Inscriptions"].append(line)
             else:
                 current_section = None
                 
@@ -250,12 +331,19 @@ def convert_to_dataframe(objects):
         # E.g. "Note 1 text. Dimensions de la 2e partie : Hauteur : 36"
         general_notes_clean = clean_for_csv(" --- ".join(obj["General_Notes"]))
         
+        # Format Inscriptions separated by " / "
+        inscriptions_joined = clean_for_csv(" / ".join([i for i in obj["Inscriptions"] if i.strip()]))
+        
         row = [
             clean_for_csv(obj["Inventory"]),
             desig1,
             desig2,
             clean_for_csv(obj["Function_Role"]),
-            "", "", "", "", "", 
+            "", # Fabricant (no pattern defined yet)
+            clean_for_csv(obj["Lieu_Fabrication"]),
+            clean_for_csv(obj["Date_Fabrication"]),
+            clean_for_csv(obj["Date_Utilisation"]),
+            clean_for_csv(obj["Lieu_Utilisation"]),
             materials_joined,
             clean_for_csv(obj["Height"]),    
             clean_for_csv(obj["Width"]),     
@@ -263,9 +351,15 @@ def convert_to_dataframe(objects):
             description_clean,
             domain_joined,
             clean_for_csv(obj["Acquisition"]),
-            "", "", "", "", "", "", "", 
+            clean_for_csv(obj["Date_Collecte"]),
+            clean_for_csv(obj["Lieu_Collecte"]),
+            "", # Donateur (no pattern defined yet)
+            clean_for_csv(obj["Collecteur"]),
+            inscriptions_joined,
+            "", # Description restauration (no pattern defined yet)
+            "", # Date de restauration (no pattern defined yet)
             biblio_complete,
-            general_notes_clean  # Mapped to the final CSV "Notes" column
+            general_notes_clean  
         ]
         rows.append(row)
         
