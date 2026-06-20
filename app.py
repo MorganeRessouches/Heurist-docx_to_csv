@@ -33,31 +33,42 @@ def clean_for_csv(text, separator=" "):
     return re.sub(r'\s+', ' ', text_no_nl).strip()
 
 def extract_lines_from_document(doc_file):
-    """Extracts all text lines from all tables in the Word document."""
+    """Extracts lines while preventing duplication from merged cells safely."""
     doc = docx.Document(doc_file)
     global_lines = []
-    logs = []
+    skipped_logs = []
     
     for idx, table in enumerate(doc.tables):
+        # Track unique cell elements to prevent repeating text from merged cells
+        processed_cells = set()
         table_lines = []
-        for row in table.rows:
-            for cell in row.cells:
+        
+        for r_idx, row in enumerate(table.rows):
+            for c_idx, cell in enumerate(row.cells):
+                # Check underlying XML element to identify merged duplicates
+                if cell._tc in processed_cells:
+                    continue
+                processed_cells.add(cell._tc)
+                
                 cell_text = normalize_text(cell.text)
                 if cell_text:
+                    # Deduplicate repeating lines inside the SAME cell only
+                    cell_lines = []
                     for line in cell_text.split('\n'):
                         line_strip = line.strip()
-                        if line_strip and line_strip not in table_lines:
-                            table_lines.append(line_strip)
+                        if line_strip and line_strip not in cell_lines:
+                            cell_lines.append(line_strip)
+                            table_lines.append((line_strip, f"Table {idx+1}, Row {r_idx+1}, Cell {c_idx+1}"))
         
-        # Check if the table seems to contain an inventory object
-        complete_table_text = " ".join(table_lines).lower()
+        # Verify if the table contains inventory cards
+        complete_table_text = " ".join([l[0] for l in table_lines]).lower()
         if "numéro d'inventaire" not in complete_table_text and "numero d'inventaire" not in complete_table_text:
-            preview = " | ".join(table_lines[:3])
-            logs.append(f"Table #{idx+1} skipped (Preview: {preview[:100]}...)")
+            preview = " | ".join([l[0] for l in table_lines[:3]])
+            skipped_logs.append(f"Table #{idx+1} skipped (Preview: {preview[:100]}...)")
         
         global_lines.extend(table_lines)
         
-    return global_lines, logs
+    return global_lines, skipped_logs
 
 def parse_line_stream(lines):
     """Parses extracted lines and separates objects based on the inventory number key."""
@@ -65,16 +76,15 @@ def parse_line_stream(lines):
     current_obj = None
     current_section = None
     
-    for line in lines:
+    for line_tuple in lines:
+        line, source = line_tuple
         line_lower = line.lower()
         
-        # Trigger detection for a new inventory object entry
-        # Looks for French terms matching the source document format
         is_new_trigger = False
         if "numéro d'inventaire" in line_lower or "numero d'inventaire" in line_lower:
             if ":" in line:
                 value_key = extract_value(line)
-                if value_key:  # Verifies that an inventory number exists
+                if value_key:
                     is_new_trigger = True
                     
         if is_new_trigger:
@@ -101,7 +111,7 @@ def parse_line_stream(lines):
         if current_obj is None:
             continue
             
-        # Parse fields using French keyword matches from the input file structure
+        # Parse fields
         if "désignation du bien" in line_lower or "designation du bien" in line_lower:
             val = extract_value(line)
             if val and val not in current_obj["Designations"]:
@@ -109,8 +119,10 @@ def parse_line_stream(lines):
             current_section = None
             
         elif "fonction / rôle" in line_lower or "fonction / role" in line_lower or "fonction/rôle" in line_lower:
-            current_obj["Function_Role"] = extract_value(line)
-            current_section = None
+            val = extract_value(line)
+            if val:
+                current_obj["Function_Role"] = val
+            current_section = "Function_Role"
             
         elif "matière :" in line_lower or "matiere :" in line_lower:
             val = extract_value(line)
@@ -124,7 +136,7 @@ def parse_line_stream(lines):
         elif "largeur en cm" in line_lower:
             current_obj["Width"] = extract_value(line)
             current_section = None
-        elif "epaisseur en cm" in line_lower or "épaisseur en cm" in line_lower:
+        elif "epaisseur en cm" in line_lower or "épaisseur en cm" in line_lower or "profondeur en cm" in line_lower or "diametre en cm" in line_lower or "diamètre en cm" in line_lower:
             current_obj["Thickness"] = extract_value(line)
             current_section = None
             
@@ -157,6 +169,12 @@ def parse_line_stream(lines):
                     current_obj["Description"] += " " + line
                 elif current_section == "Domain":
                     current_obj["Domain"].append(line)
+                elif current_section == "Function_Role":
+                    # For multi-line values under Function/Role
+                    if current_obj["Function_Role"]:
+                        current_obj["Function_Role"] += ", " + line
+                    else:
+                        current_obj["Function_Role"] = line
             else:
                 current_section = None
                 
@@ -198,9 +216,9 @@ def convert_to_dataframe(objects):
             clean_for_csv(obj["Function_Role"]),
             "", "", "", "", "", # Placeholder empty columns
             materials_joined,
-            clean_for_csv(obj["Height"]),    # Mapped to Length
-            clean_for_csv(obj["Width"]),     # Mapped to Width
-            clean_for_csv(obj["Thickness"]), # Mapped to Height
+            clean_for_csv(obj["Height"]),    # Hauteur en cm -> Longueur column
+            clean_for_csv(obj["Width"]),     # Largeur en cm -> Largeur column
+            clean_for_csv(obj["Thickness"]), # Epaisseur/Profondeur/Diamètre en cm -> Hauteur column
             description_clean,
             domain_joined,
             clean_for_csv(obj["Acquisition"]),
