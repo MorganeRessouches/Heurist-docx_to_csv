@@ -402,7 +402,7 @@ if uploaded_file is not None:
         # Generate downloadable CSV content
         csv_buffer = io.StringIO()
         df.to_csv(csv_buffer, sep=';', index=False, quoting=csv.QUOTE_MINIMAL)
-        csv_data = csv_buffer.getvalue()
+        csv_data = csv_buffer.getvalue().encode('utf-8')
         
         st.download_button(
             label="Download CSV file",
