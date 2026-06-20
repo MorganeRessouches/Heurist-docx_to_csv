@@ -168,13 +168,13 @@ def parse_line_stream(lines):
 def convert_to_dataframe(objects):
     """Converts parsed objects list to a structured pandas DataFrame."""
     headers = [
-        "Inventory", "Item Designation 1", "Item Designation 2", 
-        "Function/Role", "Manufacturer", "Place of Manufacture", "Date of Manufacture", 
-        "Date of Use", "Place of Use", "Materials", "Length", 
-        "Width", "Height", "Description", "Domain", "Acquisition Method", 
-        "Collection Date", "Collection Place", "Donor", "Collector", 
-        "Inscription", "Restoration Description", "Restoration Date", 
-        "Bibliographical References", "Notes"
+        "Inventaire", "Désignation du bien 1", "Désignation du bien 2", 
+        "Fonction/rôle", "Fabricant", "Lieu de fabrication", "Date de fabrication", 
+        "Date d'utilisation", "Lieu d'utilisation", "Matieres", "Longueur", 
+        "Largeur", "Hauteur", "Description", "Domaine", "Mode d'acquisition", 
+        "Date collecte", "Lieu de collecte", "Donateur", "Collecteur", 
+        "Inscription", "Description restauration", "Date de restauration", 
+        "Références bibliographiques", "Notes"
     ]
     
     rows = []
